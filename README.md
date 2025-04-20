@@ -11,4 +11,4 @@ npm run dev
 
 
 ```
-
+tailwind b install krna
