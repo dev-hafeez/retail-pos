@@ -1,18 +1,21 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { productService } from "@/lib/product-service"
+import { NextResponse } from "next/server"
 
-export async function GET(request: NextRequest, { params }: { params: { barcode: string } }) {
+export async function GET(request: Request, { params }: { params: { barcode: string } }) {
   try {
-    const barcode = params.barcode
-    const product = productService.getProductByBarcode(barcode)
+    const FASTAPI_URL = process.env.FASTAPI_URL ?? "http://localhost:8000"
+    const response = await fetch(`${FASTAPI_URL}/products/barcode/${params.barcode}`)
 
-    if (!product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 })
+    if (!response.ok) {
+      if (response.status === 404) {
+        return NextResponse.json({ error: "Product not found" }, { status: 404 })
+      }
+      throw new Error("Failed to fetch product by barcode")
     }
 
+    const product = await response.json()
     return NextResponse.json(product)
   } catch (error) {
     console.error("Error fetching product by barcode:", error)
-    return NextResponse.json({ error: "Failed to fetch product" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to fetch product by barcode" }, { status: 500 })
   }
 }

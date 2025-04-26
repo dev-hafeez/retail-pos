@@ -32,6 +32,11 @@ interface Product {
 // Mock categories
 const categories = ["All", "Clothing", "Footwear", "Accessories"]
 
+function generateBarcode() {
+  // Generates a random 13-digit number as a string
+  return Array.from({ length: 13 }, () => Math.floor(Math.random() * 10)).join("")
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -44,6 +49,8 @@ export default function ProductsPage() {
     category: "Clothing",
   })
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
+  const [isEditProductOpen, setIsEditProductOpen] = useState(false)
+  const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
 
@@ -95,7 +102,7 @@ export default function ProductsPage() {
     const price = Number.parseFloat(newProduct.price)
     const stock = Number.parseInt(newProduct.stock)
 
-    if (!newProduct.barcode || !newProduct.name || isNaN(price) || isNaN(stock)) {
+    if (!newProduct.name || isNaN(price) || isNaN(stock)) {
       toast({
         title: "Validation Error",
         description: "Please fill all fields with valid values",
@@ -120,12 +127,24 @@ export default function ProductsPage() {
       })
 
       if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        if (
+          error.detail &&
+          error.detail.toLowerCase().includes("barcode")
+        ) {
+          toast({
+            title: "Duplicate Barcode",
+            description: "Barcode already exists. Please try again.",
+            variant: "destructive",
+          })
+          // Generate a new barcode for the user to try again
+          setNewProduct({ ...newProduct, barcode: generateBarcode() })
+          return
+        }
         throw new Error("Failed to add product")
       }
 
       const addedProduct = await response.json()
-
-      // Add the new product to the state
       setProducts([...products, addedProduct])
       setIsAddProductOpen(false)
 
@@ -134,9 +153,9 @@ export default function ProductsPage() {
         description: "Product added successfully",
       })
 
-      // Reset form
+      // Reset form with a new barcode
       setNewProduct({
-        barcode: "",
+        barcode: generateBarcode(),
         name: "",
         price: "",
         stock: "",
@@ -152,6 +171,61 @@ export default function ProductsPage() {
     }
   }
 
+  // Edit button handler
+  const handleEditClick = (product: Product) => {
+    setEditProduct(product)
+    setIsEditProductOpen(true)
+  }
+
+  // Save edited product
+  const handleUpdateProduct = async () => {
+    if (!editProduct) return
+    const { id, barcode, name, price, stock, category } = editProduct
+
+    if (!name || isNaN(Number(price)) || isNaN(Number(stock))) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill all fields with valid values",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const response = await fetch("/api/products", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, barcode, name, price, stock, category }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to update product",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const updated = await response.json()
+      setProducts(products.map((p) => (p.id === updated.id ? updated : p)))
+      setIsEditProductOpen(false)
+      setEditProduct(null)
+      toast({
+        title: "Success",
+        description: "Product updated successfully",
+      })
+    } catch (error) {
+      console.error("Error updating product:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update product",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -161,7 +235,21 @@ export default function ProductsPage() {
             <FileUp className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
-          <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>
+          <Dialog
+            open={isAddProductOpen}
+            onOpenChange={(open) => {
+              setIsAddProductOpen(open)
+              if (open) {
+                setNewProduct({
+                  barcode: generateBarcode(),
+                  name: "",
+                  price: "",
+                  stock: "",
+                  category: "Clothing",
+                })
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -183,7 +271,7 @@ export default function ProductsPage() {
                       placeholder="Enter barcode"
                       className="pl-8"
                       value={newProduct.barcode}
-                      onChange={(e) => setNewProduct({ ...newProduct, barcode: e.target.value })}
+                      readOnly
                     />
                   </div>
                 </div>
@@ -317,7 +405,7 @@ export default function ProductsPage() {
                         <span className={product.stock < 10 ? "text-red-500 font-medium" : ""}>{product.stock}</span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" onClick={() => handleEditClick(product)}>
                           Edit
                         </Button>
                       </TableCell>
@@ -329,6 +417,82 @@ export default function ProductsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={isEditProductOpen} onOpenChange={setIsEditProductOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Product</DialogTitle>
+            <DialogDescription>Update the details of the product.</DialogDescription>
+          </DialogHeader>
+          {editProduct && (
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-barcode">Barcode</Label>
+                <Input
+                  id="edit-barcode"
+                  value={editProduct.barcode}
+                  readOnly
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-name">Product Name</Label>
+                <Input
+                  id="edit-name"
+                  value={editProduct.name}
+                  onChange={(e) => setEditProduct({ ...editProduct, name: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-price">Price ($)</Label>
+                  <Input
+                    id="edit-price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editProduct.price}
+                    onChange={(e) => setEditProduct({ ...editProduct, price: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-stock">Stock</Label>
+                  <Input
+                    id="edit-stock"
+                    type="number"
+                    min="0"
+                    value={editProduct.stock}
+                    onChange={(e) => setEditProduct({ ...editProduct, stock: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-category">Category</Label>
+                <Select
+                  value={editProduct.category}
+                  onValueChange={(value) => setEditProduct({ ...editProduct, category: value })}
+                >
+                  <SelectTrigger id="edit-category">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.slice(1).map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditProductOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateProduct}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
