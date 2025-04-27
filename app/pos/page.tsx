@@ -44,6 +44,7 @@ interface CartItem {
   name: string
   price: number
   quantity: number
+  stock?: number
 }
 
 export default function PosTerminal() {
@@ -92,38 +93,113 @@ export default function PosTerminal() {
     }
   }
 
-  // Handle barcode scan/input
+  // Fetch product by barcode using the provided FastAPI endpoint
+  const isValidProductData = (data: any): boolean => {
+    return (
+      typeof data.id === "number" &&
+      typeof data.barcode === "string" &&
+      typeof data.name === "string" &&
+      (typeof data.price === "number" || typeof data.price === "string") &&
+      (typeof data.stock === "number" || typeof data.stock === "string") &&
+      (typeof data.category === "string" || data.category == null)
+    );
+  };
+  
+  const fetchProductByBarcode = async (barcode: string) => {
+    try {
+      const normalizedBarcode = barcode.trim();
+      console.log("Fetching product for barcode:", normalizedBarcode);
+  
+      const response = await fetch(`/api/products/exact-barcode/${normalizedBarcode}`);
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (response.status === 404) {
+          toast({
+            title: "Product Not Found",
+            description: errorData.detail || `No product found with barcode: ${normalizedBarcode}`,
+            variant: "destructive",
+          });
+          return null;
+        }
+        throw new Error(errorData.detail || "Failed to fetch product");
+      }
+  
+      const productData = await response.json();
+      console.log("Raw API response:", productData);
+  
+      if (!isValidProductData(productData)) {
+        console.error("Invalid product data:", productData);
+        toast({
+          title: "Invalid Product Data",
+          description: "Product data is missing required fields",
+          variant: "destructive",
+        });
+        return null;
+      }
+  
+      const product: Product = {
+        id: productData.id,
+        barcode: productData.barcode,
+        name: productData.name,
+        price: Number(productData.price),
+        stock: Number(productData.stock),
+        category: productData.category || "Uncategorized",
+      };
+  
+      // Validate critical fields
+      if (product.id == null || product.price <= 0 || !product.name) {
+        console.warn("Incomplete product data:", productData);
+        toast({
+          title: "Incomplete Product Data",
+          description: `Product with barcode ${normalizedBarcode} is missing critical information`,
+          variant: "destructive",
+        });
+        return null;
+      }
+  
+      console.log("Mapped product:", product);
+      return product;
+    } catch (error) {
+      console.error("Error fetching product by barcode:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch product",
+        variant: "destructive",
+      });
+      return null;
+    }
+  };
+
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!barcode) return
 
-    try {
-      const response = await fetch(`/api/products/barcode/${barcode}`)
+    const product = await fetchProductByBarcode(barcode)
+    if (!product) return
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          toast({
-            title: "Product Not Found",
-            description: `No product found with barcode: ${barcode}`,
-            variant: "destructive",
-          })
-          return
-        }
-        throw new Error("Failed to fetch product")
-      }
+    const existingItem = cart.find((item) => item.barcode === barcode)
 
-      const product: Product = await response.json()
-
-      // Check if product already in cart
-      const existingItem = cart.find((item) => item.barcode === barcode)
-
-      if (existingItem) {
-        // Increase quantity if already in cart
-        setCart(cart.map((item) => (item.barcode === barcode ? { ...item, quantity: item.quantity + 1 } : item)))
+    if (existingItem) {
+      if (existingItem.quantity < product.stock) {
+        const newCart = cart.map((item) =>
+          item.barcode === barcode
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+        setCart(newCart)
+        console.log("Updated cart (increment):", newCart)
       } else {
-        // Add new item to cart
-        setCart([
+        toast({
+          title: "Stock Limit Reached",
+          description: `Cannot add more than available stock (${product.stock})`,
+          variant: "destructive",
+        })
+      }
+    } else {
+      if (product.stock >= 0) {
+        const newCart = [
           ...cart,
           {
             id: product.id,
@@ -131,26 +207,35 @@ export default function PosTerminal() {
             name: product.name,
             price: product.price,
             quantity: 1,
+            stock: product.stock,
           },
-        ])
+        ]
+        setCart(newCart)
+        console.log("Updated cart (new item):", newCart)
+      } else {
+        toast({
+          title: "Out of Stock",
+          description: `Product ${product.name} is out of stock`,
+          variant: "destructive",
+        })
       }
-
-      // Clear barcode input
-      setBarcode("")
-    } catch (error) {
-      console.error("Error fetching product:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add product to cart",
-        variant: "destructive",
-      })
     }
-  }
 
+    setBarcode("")
+  }
   // Handle quantity change
   const updateQuantity = (barcode: string, newQuantity: number) => {
+    const item = cart.find((item) => item.barcode === barcode)
+    if (!item) return
+
     if (newQuantity <= 0) {
       setCart(cart.filter((item) => item.barcode !== barcode))
+    } else if (newQuantity > (item.stock || 0)) {
+      toast({
+        title: "Stock Limit Reached",
+        description: `Cannot add more than available stock (${item.stock})`,
+        variant: "destructive",
+      })
     } else {
       setCart(cart.map((item) => (item.barcode === barcode ? { ...item, quantity: newQuantity } : item)))
     }
@@ -300,7 +385,7 @@ export default function PosTerminal() {
                 </TableHeader>
                 <TableBody>
                   {cart.length === 0 ? (
-                    <TableRow>
+                    <TableRow key="empty-cart">
                       <TableCell colSpan={5} className="text-center text-muted-foreground h-24">
                         Cart is empty. Scan products to add them.
                       </TableCell>
@@ -309,7 +394,7 @@ export default function PosTerminal() {
                     cart.map((item) => (
                       <TableRow key={item.barcode}>
                         <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell className="text-right">${item.price.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${(item.price || 0).toFixed(2)}</TableCell>
                         <TableCell>
                           <div className="flex items-center justify-center space-x-2">
                             <Button
@@ -331,7 +416,7 @@ export default function PosTerminal() {
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">${(item.price * item.quantity).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${((item.price || 0) * item.quantity).toFixed(2)}</TableCell>
                         <TableCell>
                           <Button
                             variant="ghost"
@@ -493,9 +578,9 @@ export default function PosTerminal() {
                   {cart.map((item) => (
                     <TableRow key={item.barcode}>
                       <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell className="text-right">${item.price.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">${item.price ? item.price.toFixed(2) : "0.00"}</TableCell>
                       <TableCell className="text-center">{item.quantity}</TableCell>
-                      <TableCell className="text-right">${(item.price * item.quantity).toFixed(2)}</TableCell>
+                      <TableCell className="text-right">${item.price ? (item.price * item.quantity).toFixed(2) : "0.00"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -625,9 +710,9 @@ export default function PosTerminal() {
                     {cart.map((item) => (
                       <TableRow key={item.barcode}>
                         <TableCell>{item.name}</TableCell>
-                        <TableCell className="text-right">${item.price.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${(item.price || 0).toFixed(2)}</TableCell>
                         <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-right">${(item.price * item.quantity).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">${((item.price || 0) * item.quantity).toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

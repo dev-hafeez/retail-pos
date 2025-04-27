@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
-export async function GET(request: Request, { params }: { params: { barcode: string } }) {
+export async function GET(_: NextRequest, context: { params: { barcode: string } }) {
   try {
+    const { params } = await context;
+    const barcode = params.barcode; // just access from params
     const FASTAPI_URL = process.env.FASTAPI_URL ?? "http://localhost:8000"
-    const response = await fetch(`${FASTAPI_URL}/products/barcode/${params.barcode}`)
+    const response = await fetch(`${FASTAPI_URL}/products/barcode/${barcode}`)
 
     if (!response.ok) {
       if (response.status === 404) {

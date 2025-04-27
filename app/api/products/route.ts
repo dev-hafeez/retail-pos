@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 let cachedProducts: any[] | null = null
 let cacheTimestamp: number | null = null
 const CACHE_TTL = 60 * 1000 // 1 minute in milliseconds
+const PAGE_SIZE = 20
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,49 +11,31 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const query = searchParams.get("query")
     const category = searchParams.get("category")
+    const page = searchParams.get("page") || "1"
 
     let response;
+    let url = `${FASTAPI_URL}/products?page=${page}&page_size=${PAGE_SIZE}`
 
     // If searching by barcode (all digits)
     if (query && /^\d+$/.test(query)) {
-      response = await fetch(`${FASTAPI_URL}/products/barcode/${query}`)
-      if (response.status === 404) return NextResponse.json([], { status: 200 })
-      if (!response.ok) throw new Error("Failed to fetch product by barcode")
-      const products = await response.json()
-      return NextResponse.json(Array.isArray(products) ? products : [products])
+      url = `${FASTAPI_URL}/products/barcode/${query}?page=${page}&page_size=${PAGE_SIZE}`
     }
-
     // If searching by name (not all digits)
-    if (query && query.trim() !== "") {
-      response = await fetch(`${FASTAPI_URL}/products/name/${encodeURIComponent(query)}`)
-      if (response.status === 404) return NextResponse.json([], { status: 200 })
-      if (!response.ok) throw new Error("Failed to fetch product by name")
-      const products = await response.json()
-      return NextResponse.json(Array.isArray(products) ? products : [products])
+    else if (query && query.trim() !== "") {
+      url = `${FASTAPI_URL}/products/name/${encodeURIComponent(query)}?page=${page}&page_size=${PAGE_SIZE}`
     }
-
     // If filtering by category
-    if (category && category !== "All") {
-      response = await fetch(`${FASTAPI_URL}/products/category/${encodeURIComponent(category)}`)
+    else if (category && category !== "All") {
+      url = `${FASTAPI_URL}/products/category/${encodeURIComponent(category)}?page=${page}&page_size=${PAGE_SIZE}`
+    }
+
+    response = await fetch(url)
+    if (!response.ok) {
       if (response.status === 404) return NextResponse.json([], { status: 200 })
-      if (!response.ok) throw new Error("Failed to fetch products by category")
-      const products = await response.json()
-      return NextResponse.json(Array.isArray(products) ? products : [products])
+      throw new Error("Failed to fetch products")
     }
-
-    // Default: fetch all products, use cache if available and fresh
-    const now = Date.now()
-    if (cachedProducts && cacheTimestamp && now - cacheTimestamp < CACHE_TTL) {
-      return NextResponse.json(cachedProducts)
-    }
-
-    response = await fetch(`${FASTAPI_URL}/products`)
-    if (!response.ok) throw new Error("Failed to fetch products")
     const products = await response.json()
-    const productsArray = Array.isArray(products) ? products : [products]
-    cachedProducts = productsArray
-    cacheTimestamp = now
-    return NextResponse.json(productsArray)
+    return NextResponse.json(Array.isArray(products) ? products : [products])
   } catch (error) {
     console.error("Error fetching products:", error)
     return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 })

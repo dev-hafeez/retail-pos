@@ -41,6 +41,8 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
   const [newProduct, setNewProduct] = useState({
     barcode: "",
     name: "",
@@ -64,27 +66,33 @@ export default function ProductsPage() {
     try {
       let url = "/api/products"
       const params = new URLSearchParams()
-
+  
       if (searchQuery) {
         params.append("query", searchQuery)
       }
-
       if (selectedCategory !== "All") {
         params.append("category", selectedCategory)
       }
-
+      params.append("page", page.toString())
+  
       if (params.toString()) {
         url += `?${params.toString()}`
       }
-
+  
       const response = await fetch(url)
-
       if (!response.ok) {
         throw new Error("Failed to fetch products")
       }
-
+  
+      // Expecting { products, total, totalPages, page, pageSize }
       const data = await response.json()
-      setProducts(data)
+      if (Array.isArray(data)) {
+        setProducts(data)
+        setTotalPages(1) // or set to the correct value if you have it
+      } else {
+        setProducts(data.products || [])
+        setTotalPages(data.totalPages || 1)
+      }
     } catch (error) {
       console.error("Error fetching products:", error)
       toast({
@@ -238,7 +246,7 @@ export default function ProductsPage() {
           <Dialog
             open={isAddProductOpen}
             onOpenChange={(open) => {
-              setIsAddProductOpen(open)
+              setIsAddProductOpen(open);
               if (open) {
                 setNewProduct({
                   barcode: generateBarcode(),
@@ -246,7 +254,7 @@ export default function ProductsPage() {
                   price: "",
                   stock: "",
                   category: "Clothing",
-                })
+                });
               }
             }}
           >
@@ -259,7 +267,9 @@ export default function ProductsPage() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add New Product</DialogTitle>
-                <DialogDescription>Enter the details of the new product.</DialogDescription>
+                <DialogDescription>
+                  Enter the details of the new product.
+                </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
@@ -281,7 +291,9 @@ export default function ProductsPage() {
                     id="name"
                     placeholder="Enter product name"
                     value={newProduct.name}
-                    onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                    onChange={(e) =>
+                      setNewProduct({ ...newProduct, name: e.target.value })
+                    }
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -294,7 +306,9 @@ export default function ProductsPage() {
                       step="0.01"
                       min="0"
                       value={newProduct.price}
-                      onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+                      onChange={(e) =>
+                        setNewProduct({ ...newProduct, price: e.target.value })
+                      }
                     />
                   </div>
                   <div className="grid gap-2">
@@ -305,7 +319,9 @@ export default function ProductsPage() {
                       placeholder="0"
                       min="0"
                       value={newProduct.stock}
-                      onChange={(e) => setNewProduct({ ...newProduct, stock: e.target.value })}
+                      onChange={(e) =>
+                        setNewProduct({ ...newProduct, stock: e.target.value })
+                      }
                     />
                   </div>
                 </div>
@@ -313,7 +329,9 @@ export default function ProductsPage() {
                   <Label htmlFor="category">Category</Label>
                   <Select
                     value={newProduct.category}
-                    onValueChange={(value) => setNewProduct({ ...newProduct, category: value })}
+                    onValueChange={(value) =>
+                      setNewProduct({ ...newProduct, category: value })
+                    }
                   >
                     <SelectTrigger id="category">
                       <SelectValue placeholder="Select category" />
@@ -329,7 +347,10 @@ export default function ProductsPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsAddProductOpen(false)}
+                >
                   Cancel
                 </Button>
                 <Button onClick={handleAddProduct}>Add Product</Button>
@@ -342,7 +363,9 @@ export default function ProductsPage() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle>Product Inventory</CardTitle>
-          <CardDescription>Manage your products, prices, and inventory levels.</CardDescription>
+          <CardDescription>
+            Manage your products, prices, and inventory levels.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4 mb-4">
@@ -352,10 +375,19 @@ export default function ProductsPage() {
                 placeholder="Search products by name or barcode"
                 className="pl-8"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setPage(1);
+                }}
               />
             </div>
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select
+              value={selectedCategory}
+              onValueChange={(value) => {
+                setSelectedCategory(value);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
@@ -390,22 +422,43 @@ export default function ProductsPage() {
                   </TableRow>
                 ) : products.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                    <TableCell
+                      colSpan={6}
+                      className="text-center h-24 text-muted-foreground"
+                    >
                       No products found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   products.map((product) => (
                     <TableRow key={product.id}>
-                      <TableCell className="font-mono">{product.barcode}</TableCell>
-                      <TableCell className="font-medium">{product.name}</TableCell>
+                      <TableCell className="font-mono">
+                        {product.barcode}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {product.name}
+                      </TableCell>
                       <TableCell>{product.category}</TableCell>
-                      <TableCell className="text-right">${product.price.toFixed(2)}</TableCell>
                       <TableCell className="text-right">
-                        <span className={product.stock < 10 ? "text-red-500 font-medium" : ""}>{product.stock}</span>
+                        ${product.price.toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => handleEditClick(product)}>
+                        <span
+                          className={
+                            product.stock < 10
+                              ? "text-red-500  font-medium"
+                              : "text-green-500 font-medium"
+                          }
+                        >
+                          {product.stock}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditClick(product)}
+                        >
                           Edit
                         </Button>
                       </TableCell>
@@ -416,30 +469,63 @@ export default function ProductsPage() {
             </Table>
           </div>
         </CardContent>
+        <div className="flex items-center justify-center gap-1 py-4">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            Previous
+          </Button>
+
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+            (pageNumber) => (
+              <Button
+                key={pageNumber}
+                variant={pageNumber === page ? "default" : "outline"}
+                size="sm"
+                onClick={() => setPage(pageNumber)}
+                className="w-8"
+              >
+                {pageNumber}
+              </Button>
+            )
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Next
+          </Button>
+        </div>
       </Card>
 
       <Dialog open={isEditProductOpen} onOpenChange={setIsEditProductOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Product</DialogTitle>
-            <DialogDescription>Update the details of the product.</DialogDescription>
+            <DialogDescription>
+              Update the details of the product.
+            </DialogDescription>
           </DialogHeader>
           {editProduct && (
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="edit-barcode">Barcode</Label>
-                <Input
-                  id="edit-barcode"
-                  value={editProduct.barcode}
-                  readOnly
-                />
+                <Input id="edit-barcode" value={editProduct.barcode} readOnly />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-name">Product Name</Label>
                 <Input
                   id="edit-name"
                   value={editProduct.name}
-                  onChange={(e) => setEditProduct({ ...editProduct, name: e.target.value })}
+                  onChange={(e) =>
+                    setEditProduct({ ...editProduct, name: e.target.value })
+                  }
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -451,7 +537,12 @@ export default function ProductsPage() {
                     step="0.01"
                     min="0"
                     value={editProduct.price}
-                    onChange={(e) => setEditProduct({ ...editProduct, price: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setEditProduct({
+                        ...editProduct,
+                        price: parseFloat(e.target.value) || 0,
+                      })
+                    }
                   />
                 </div>
                 <div className="grid gap-2">
@@ -461,7 +552,12 @@ export default function ProductsPage() {
                     type="number"
                     min="0"
                     value={editProduct.stock}
-                    onChange={(e) => setEditProduct({ ...editProduct, stock: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setEditProduct({
+                        ...editProduct,
+                        stock: parseInt(e.target.value) || 0,
+                      })
+                    }
                   />
                 </div>
               </div>
@@ -469,7 +565,9 @@ export default function ProductsPage() {
                 <Label htmlFor="edit-category">Category</Label>
                 <Select
                   value={editProduct.category}
-                  onValueChange={(value) => setEditProduct({ ...editProduct, category: value })}
+                  onValueChange={(value) =>
+                    setEditProduct({ ...editProduct, category: value })
+                  }
                 >
                   <SelectTrigger id="edit-category">
                     <SelectValue placeholder="Select category" />
@@ -486,7 +584,10 @@ export default function ProductsPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditProductOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setIsEditProductOpen(false)}
+            >
               Cancel
             </Button>
             <Button onClick={handleUpdateProduct}>Save Changes</Button>
@@ -494,5 +595,5 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }
